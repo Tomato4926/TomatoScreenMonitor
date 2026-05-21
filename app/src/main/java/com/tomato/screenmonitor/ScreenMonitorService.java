@@ -19,12 +19,9 @@ import android.net.Uri;
 import android.os.Build;
 import android.os.Handler;
 import android.os.Looper;
-import android.util.Log;
 import android.view.Display;
 import android.view.accessibility.AccessibilityEvent;
-
 import androidx.core.app.NotificationCompat;
-
 import java.io.File;
 
 public class ScreenMonitorService extends AccessibilityService {
@@ -34,6 +31,7 @@ public class ScreenMonitorService extends AccessibilityService {
     private static final String CHANNEL_ID = "screen_monitor_channel";
     private static final int NOTIFICATION_ID = 1;
     private SharedPreferences prefs;
+    private String lastNotificationText = "监测中..."; // 记录上一次的通知文本
 
     @Override
     public void onServiceConnected() {
@@ -42,6 +40,15 @@ public class ScreenMonitorService extends AccessibilityService {
         prefs = getSharedPreferences("MonitorPrefs", Context.MODE_PRIVATE);
         createNotificationChannel();
         updateNotificationVisibility();
+
+        if (prefs.getBoolean("autoReturnToMain", false)) {
+            prefs.edit().putBoolean("autoReturnToMain", false).apply();
+            Intent intent = new Intent(this, MainActivity.class);
+            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP);
+            startActivity(intent);
+            LogBuffer.add("Service", "自动跳转回主页面");
+        }
+
         handler = new Handler(Looper.getMainLooper());
         startMonitoring();
     }
@@ -68,6 +75,18 @@ public class ScreenMonitorService extends AccessibilityService {
         monitorRunnable = new Runnable() {
             @Override
             public void run() {
+                // 无论是否监测，先同步通知状态
+                syncNotificationState();
+
+                if (!prefs.getBoolean("monitorEnabled", true)) {
+                    // 暂停时也更新通知文字（如果需要）
+                    updateNotification("监测已暂停");
+                    int intervalSec = prefs.getInt("interval", 5);
+                    if (intervalSec < 1) intervalSec = 1;
+                    handler.postDelayed(this, intervalSec * 1000L);
+                    return;
+                }
+
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
                     performScreenCapture();
                 } else {
@@ -190,7 +209,7 @@ public class ScreenMonitorService extends AccessibilityService {
         }
     }
 
-    // ===== 通知控制 =====
+    // ==================== 通知管理（核心修改） ====================
     private void createNotificationChannel() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             NotificationChannel channel = new NotificationChannel(
@@ -201,13 +220,26 @@ public class ScreenMonitorService extends AccessibilityService {
         }
     }
 
-    private void updateNotificationVisibility() {
-        boolean show = prefs.getBoolean("showNotification", false); // 默认关闭，等用户手动开启
+    /**
+     * 根据当前开关状态同步通知：开则显示（若无则重建），关则移除
+     */
+    private void syncNotificationState() {
+        boolean show = prefs.getBoolean("showNotification", false);
         if (show && hasNotificationPermission()) {
-            showNotification("监测中...");
+            // 如果通知没显示，或者需要更新为默认文本，这里用最后一次设置的文本
+            NotificationManager nm = getSystemService(NotificationManager.class);
+            if (nm != null) {
+                // 简单方式：每次都重新设置通知，不会重复创建，只是更新内容
+                showNotification(lastNotificationText);
+            }
         } else {
             removeNotification();
         }
+    }
+
+    private void updateNotificationVisibility() {
+        // 服务连接时调用一次
+        syncNotificationState();
     }
 
     private void showNotification(String text) {
@@ -215,14 +247,20 @@ public class ScreenMonitorService extends AccessibilityService {
             LogBuffer.add("Notif", "无通知权限，不显示通知");
             return;
         }
+        lastNotificationText = text; // 记录文本
         Notification notification = buildNotification(text);
         NotificationManager nm = getSystemService(NotificationManager.class);
         if (nm != null) nm.notify(NOTIFICATION_ID, notification);
     }
 
     private void updateNotification(String text) {
-        if (prefs.getBoolean("showNotification", false)) {
+        // 更新通知，并受开关控制
+        boolean show = prefs.getBoolean("showNotification", false);
+        if (show) {
             showNotification(text);
+        } else {
+            // 如果关闭了通知，则移除已有通知
+            removeNotification();
         }
     }
 
@@ -250,6 +288,6 @@ public class ScreenMonitorService extends AccessibilityService {
             return checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS)
                     == PackageManager.PERMISSION_GRANTED;
         }
-        return true; // Android 12 及以下默认允许
+        return true;
     }
 }

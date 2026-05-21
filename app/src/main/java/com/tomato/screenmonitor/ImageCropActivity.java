@@ -32,8 +32,6 @@ public class ImageCropActivity extends AppCompatActivity {
     private Button btnConfirm;
     private float startX, startY, endX, endY;
     private Bitmap selectedImageBitmap;
-
-    // 图片在 ImageView 中的变换矩阵
     private Matrix imageMatrix;
     private float[] matrixValues = new float[9];
 
@@ -60,14 +58,12 @@ public class ImageCropActivity extends AppCompatActivity {
         imageView.setOnTouchListener(new View.OnTouchListener() {
             @Override
             public boolean onTouch(View v, MotionEvent event) {
-                // 获取 ImageView 当前的图片变换矩阵
                 imageMatrix = new Matrix(imageView.getImageMatrix());
                 imageMatrix.getValues(matrixValues);
 
                 float viewX = event.getX();
                 float viewY = event.getY();
 
-                // 将触摸坐标从 ImageView 空间映射到原始图片空间
                 float[] points = new float[]{viewX, viewY};
                 Matrix inverseMatrix = new Matrix();
                 imageMatrix.invert(inverseMatrix);
@@ -84,7 +80,6 @@ public class ImageCropActivity extends AppCompatActivity {
                     case MotionEvent.ACTION_MOVE:
                         endX = imgX;
                         endY = imgY;
-                        // 在原始图片上绘制矩形，然后显示
                         imageView.setImageBitmap(drawRectangleOnBitmap(selectedImageBitmap, startX, startY, endX, endY));
                         break;
                     case MotionEvent.ACTION_UP:
@@ -103,13 +98,11 @@ public class ImageCropActivity extends AppCompatActivity {
                 return;
             }
 
-            // 确保坐标顺序正确
             float left = Math.min(startX, endX);
             float top = Math.min(startY, endY);
             float right = Math.max(startX, endX);
             float bottom = Math.max(startY, endY);
 
-            // 边界检查
             int imgW = selectedImageBitmap.getWidth();
             int imgH = selectedImageBitmap.getHeight();
             if (left < 0) left = 0;
@@ -117,7 +110,6 @@ public class ImageCropActivity extends AppCompatActivity {
             if (right > imgW) right = imgW;
             if (bottom > imgH) bottom = imgH;
 
-            // 保存比例（使用原始图片尺寸）
             float leftRatio = left / imgW;
             float topRatio = top / imgH;
             float rightRatio = right / imgW;
@@ -131,7 +123,6 @@ public class ImageCropActivity extends AppCompatActivity {
                     .putFloat("bottomRatio", bottomRatio)
                     .apply();
 
-            // 裁剪并保存预设图片
             int cropWidth = (int)(right - left);
             int cropHeight = (int)(bottom - top);
             if (cropWidth <= 0 || cropHeight <= 0) {
@@ -146,6 +137,8 @@ public class ImageCropActivity extends AppCompatActivity {
                 Toast.makeText(this, "预设已保存，监测中...", Toast.LENGTH_LONG).show();
             } else {
                 Toast.makeText(this, "请开启无障碍服务以开始监测", Toast.LENGTH_LONG).show();
+                // 设置自动返回标记
+                prefs.edit().putBoolean("autoReturnToMain", true).apply();
                 startActivity(new Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS));
             }
             finish();
